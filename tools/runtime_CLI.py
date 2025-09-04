@@ -259,60 +259,6 @@ class ParseVSet:
     def parse_vset_str(self):
         return "{0:30} [compressed bitwidth:{1}]".format(
             self.name, self.bitwidth)
-    
-# # This is hard-coded for testing - a better solution is probably to
-# # pull the pipe from a get() command on startup, or CLI launch option
-# spade_enabled = False
-# spade_file = "/home/Shared/spade_pipe"
-# spade_CLI_uid = 1000000
-# spade_r_uid = spade_CLI_uid + 1
-# spade_t_uid = spade_r_uid + 1
-# spade_p_uid = spade_t_uid + 1
-# spade_b_uid = spade_p_uid + 1
-
-# # SPADE functions used later
-# def init_spade():
-#     if not spade_enabled:
-#         return
-#     spade_pipe = open(spade_file, 'a')
-#     spade_pipe.write(f"type:Process id:{spade_CLI_uid} subtype:CLI\n")
-#     spade_pipe.write(f"type:Artifact id:{spade_r_uid} subtype:CLI_reg\n")
-#     spade_pipe.write(f"type:Artifact id:{spade_t_uid} subtype:CLI_tbl\n")
-#     spade_pipe.write(f"type:Artifact id:{spade_p_uid} subtype:CLI_prog\n")
-#     spade_pipe.write(f"type:Artifact id:{spade_b_uid} subtype:CLI_loaded_prog\n")
-#     spade_pipe.close()
-
-# class Spade:
-#     # def __new__(enabled, file, switch_id):
-#     #     if not enabled:
-#     #         return None
-        
-#     def __init__(self, enabled=True, file="/home/Shared/spade_pipe", CLI_id=1000000):
-#         self.enabled = enabled
-#         self.file = file
-#         self.CLI_id = CLI_id
-#         self.switch_id = CLI_id // 1000000
-#         self.r_id = CLI_id + 1
-#         self.t_id = CLI_id + 2
-#         self.p_id = CLI_id + 3
-#         self.b_id = CLI_id + 4
-#         if enabled:
-#             spade_pipe = open(file, 'a')
-#             spade_pipe.write(f"type:Process id:{self.CLI_id} subtype:CLI\n")
-#             spade_pipe.write(f"type:Artifact id:{self.r_id} subtype:CLI_reg\n")
-#             spade_pipe.write(f"type:Artifact id:{self.t_id} subtype:CLI_tbl\n")
-#             spade_pipe.write(f"type:Artifact id:{self.p_id} subtype:CLI_prog\n")
-#             spade_pipe.write(f"type:Artifact id:{self.b_id} subtype:CLI_loaded_prog\n")
-#             spade_pipe.close()
-
-#     def send_edge(self, type, from_uid, to_uid, vals):
-#         if not self.enabled:
-#             return
-#         spade_pipe = open(self.file, 'a')
-#         print(f"Sending Edge type:{type} from:{from_uid} to:{to_uid} time:{time.time_ns()//1000} {vals}\n")
-#         spade_pipe.write(f"type:{type} from:{from_uid} to:{to_uid} time:{time.time_ns()//1000} {vals}\n")
-#         spade_pipe.close()
-
 
 def reset_config():
     TABLES.clear()
