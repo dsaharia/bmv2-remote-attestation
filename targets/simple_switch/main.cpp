@@ -82,6 +82,9 @@ main(int argc, char* argv[]) {
   simple_switch_parser.add_flag_option(
       "disable-ra-broadcast",
       "Disables the ethernet broadcast of RA evidence.");
+  simple_switch_parser.add_flag_option(
+    "enable-provP4",
+    "Enable provenance for P4 programs.");
 
   bm::OptionsParser parser;
   parser.parse(argc, argv, &simple_switch_parser);
@@ -176,8 +179,14 @@ main(int argc, char* argv[]) {
     std::exit(1);
   }
 
+  bool enable_provP4_flag = false;
+  if (simple_switch_parser.get_flag_option("enable-provP4", &enable_provP4_flag)
+      != bm::TargetParserBasic::ReturnCode::SUCCESS) {
+    std::exit(1);
+  }
+
   simple_switch = new SimpleSwitch(enable_swap_flag, drop_port, enable_ra_flag, ra_port, ra_etype, enable_spade_flag, spade_file, spade_switch_id,
-                                   spade_verbosity, spade_period, disable_ra_broadcast_flag);
+                                   spade_verbosity, spade_period, disable_ra_broadcast_flag, enable_provP4_flag);
   int status = simple_switch->init_from_options_parser(parser);
   if (status != 0) std::exit(status);
   if (enable_spade_flag){
