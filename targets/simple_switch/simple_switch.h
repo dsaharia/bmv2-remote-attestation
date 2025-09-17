@@ -149,11 +149,12 @@ class SimpleSwitch : public Switch {
   std::unordered_map<std::string, spade_uid_t> spade_table_ids {};
   std::unordered_map<std::string, uint64_t> spade_recorded_flows_times {};
   std::unordered_map<std::string, spade_uid_t> spade_recorded_flows_uids {};
+  std::unordered_map<uint64_t, spade_uid_t> spade_flow_rule_tag_to_table_uid {};
 
  private:
   using clock = std::chrono::high_resolution_clock;
   mutable boost::shared_mutex spade_mutex{};
-
+  bool enable_provP4;
   // Remote Attestation registers
   static constexpr size_t nb_ra_registers = 3;
   unsigned char ra_registers[16*nb_ra_registers];
@@ -173,8 +174,8 @@ class SimpleSwitch : public Switch {
                         uint32_t spade_switch_id = default_spade_id,
                         uint32_t spade_verbosity = default_spade_verbosity,
                         uint32_t spade_period = default_spade_period,
-                        bool disable_ra_broadcast = true);
-
+                        bool disable_ra_broadcast = true,
+                        bool enable_provP4 = false);
   ~SimpleSwitch();
 
   int receive_(port_t port_num, const char *buffer, int len) override;
@@ -225,6 +226,7 @@ class SimpleSwitch : public Switch {
   std::string get_spade_file() const;
   bool get_enable_spade() const;
   int get_spade_cli_id() const;
+  bool get_enable_provP4() const;
 
   // RA Register Access
   void set_ra_registers(unsigned char *val, unsigned int idx);
@@ -276,7 +278,7 @@ class SimpleSwitch : public Switch {
 
   // Get MD5 of tables through hashing all the entries
   // An entry, in this case, is the match key(s), associated function, and function data
-  void ra_update_tblhash(cxt_id_t cxt_id, const std::string &table_name, std::string &spade_str) {
+  void ra_update_tblhash(cxt_id_t cxt_id, const std::string &table_name, std::string &spade_str, uint64_t flow_rule_tag) {
     if (!enable_ra && !enable_spade) return;
     uint64_t instance = get_time_since_epoch_us()/1000;
     boost::unique_lock<boost::shared_mutex> lock(ra_tbl_mutex);
@@ -312,6 +314,7 @@ class SimpleSwitch : public Switch {
     }
     auto it = spade_table_ids.find(table_name);
     uint32_t spade_switch_id_special = spade_switch_id / 10;
+    auto flow_rule_tag_from_table = spade_flow_rule_tag_to_table_uid[flow_rule_tag]; // remove this
     if (it == spade_table_ids.end()) {
       spade_uid_t table_uid = spade_switch_id_special + spade_uid_ctr++;
       spade_send_vertex(SPADE_VTYPE_ARTIFACT, instance, table_uid,
@@ -327,6 +330,13 @@ class SimpleSwitch : public Switch {
       spade_uid_t prev_table_uid = it->second;
       spade_send_edge(SPADE_ETYPE_DERIVEDFROM, instance, cur_table_uid, prev_table_uid, spade_str);
       it->second = cur_table_uid;
+    }
+    //print the spade_flow_rule_tag_to_table_uid map
+    // for (auto it = spade_flow_rule_tag_to_table_uid.begin(); it != spade_flow_rule_tag_to_table_uid.end(); ++it) {
+    //   BMLOG_DEBUG("flow_rule_tag: {} table_uid: {}", it->first, it->second);
+    // }
+    if(flow_rule_tag != 0) {
+      spade_send_vertex(SPADE_VTYPE_ARTIFACT, instance, flow_rule_tag, "subtype:table_rule table:"+ table_name + spade_str);
     }
   }
 
@@ -408,7 +418,7 @@ class SimpleSwitch : public Switch {
     auto retval = Switch::mt_clear_entries(cxt_id, table_name, reset_default_entry);
     // table_clear <table_name>
     std::string spade_str = "command:table_clear\\ " + table_name;
-    ra_update_tblhash(cxt_id, table_name, spade_str);
+    ra_update_tblhash(cxt_id, table_name, spade_str, 0);
     return retval;
   }
 
@@ -421,6 +431,7 @@ class SimpleSwitch : public Switch {
                entry_handle_t *handle,
                int priority = -1  /*only used for ternary*/) {
     // table_add <table name> <action name> <match fields> => <action parameters> [priority]
+    uint64_t flow_rule_tag;
     std::stringstream spade_ss;
     spade_ss << "command:table_add\\ " << table_name << "\\ " << action_name << "\\ ";
     // Borrowed from MatchKeyParam operator>> to avoid unneeded TYPE and formatting output
@@ -447,13 +458,23 @@ class SimpleSwitch : public Switch {
     for (size_t q = 0; q < action_data.size(); ++q) {
       spade_ss << "\\ ";
       bm::utils::dump_hexstring(spade_ss, action_data.get(q).get_string());
+      if (q == action_data.size() - 1){
+        // TODO - only do this for the table that does forwarding - take table name as input
+        flow_rule_tag = action_data.get(q).get_uint64();
+        // Add the flow rule tag
+        spade_ss << "\\ flow_rule_tag:" << flow_rule_tag;
+        if (flow_rule_tag != 0) {
+          // save the flow rule tag to the hash table with placeholder value -1
+          spade_flow_rule_tag_to_table_uid[flow_rule_tag] = -1;
+        }
+      }
     }
     if (priority > -1) spade_ss << "\\ " << priority;
     std::string spade_str = spade_ss.str();
     auto retval = Switch::mt_add_entry(
         cxt_id, table_name, match_key, action_name,
         std::move(action_data), handle, priority);
-    ra_update_tblhash(cxt_id, table_name, spade_str);
+    ra_update_tblhash(cxt_id, table_name, spade_str, flow_rule_tag);
     return retval;
   }
 
@@ -464,7 +485,7 @@ class SimpleSwitch : public Switch {
     auto retval = Switch::mt_delete_entry(cxt_id, table_name, handle);
     // table_delete <table_name> <handle>
     std::string spade_str = "command:table_delete\\ " + table_name + "\\ " + std::to_string(handle);
-    ra_update_tblhash(cxt_id, table_name, spade_str);
+    ra_update_tblhash(cxt_id, table_name, spade_str, 0);
     return retval;
   }
 
@@ -484,7 +505,7 @@ class SimpleSwitch : public Switch {
     std::string spade_str = spade_ss.str();
     auto retval = Switch::mt_modify_entry(cxt_id,
         table_name, handle, action_name, std::move(action_data));
-    ra_update_tblhash(cxt_id, table_name, spade_str);
+    ra_update_tblhash(cxt_id, table_name, spade_str, 0);
     return retval;
   }
 
