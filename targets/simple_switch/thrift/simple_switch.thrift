@@ -56,6 +56,7 @@ service SimpleSwitch {
   string get_spade_file();
   bool get_spade_enabled();
   i32 get_spade_cli_id();
+  bool get_enable_provP4();
 
   // these methods are here as an experiment, prefer get_time_elapsed_us() when
   // possible
