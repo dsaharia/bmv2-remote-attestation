@@ -100,14 +100,13 @@ class SimpleSwitchAPI(runtime_CLI.RuntimeAPI):
     def do_table_add(self, line):
         cmd_in = line.replace(" ", "\\ ")
         cmd_in = "command:table_add\\ "+cmd_in
-        flow_rule_tag = cmd_in.split(" ")[-1]
-        # TODO: Add a check to perform this only when provP4 is enabled and better error handling
-        if flow_rule_tag:
-            # print(f"Flow rule tag: {flow_rule_tag}")
-            cmd_in = cmd_in + " flow_rule_tag:" + flow_rule_tag
-            # print(f"Command in: {cmd_in}")
-        else:
-            print("No flow rule tag found")
+        if self.provP4:
+            flow_rule_tag = cmd_in.split(" ")[-1]
+            # TODO: better error handling
+            if flow_rule_tag:
+                cmd_in = cmd_in + " flow_rule_tag:" + flow_rule_tag
+            else:
+                print("No flow rule tag found")
         self.spade.send_edge("WasGeneratedBy", self.spade.t_id, self.spade.CLI_id, cmd_in)
         runtime_CLI.RuntimeAPI.do_table_add(self, line)
 
