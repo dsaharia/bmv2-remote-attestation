@@ -156,6 +156,11 @@ class SimpleSwitchHandler : virtual public SimpleSwitchIf {
     return (switch_->get_spade_cli_id());
   }
 
+  bool get_enable_provP4() {
+    bm::Logger::get()->trace("bm_get_enable_provP4");
+    return (switch_->get_enable_provP4());
+  }
+
  private:
   SimpleSwitch *switch_;
 };
