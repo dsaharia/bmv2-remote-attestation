@@ -57,6 +57,8 @@ class P4Switch(Switch):
                  thrift_port = None,
                  pcap_dump = False,
                  log_console = False,
+                 log_level = None,
+                 log_file = None,
                  verbose = False,
                  device_id = None,
                  enable_debugger = False,
@@ -79,6 +81,8 @@ class P4Switch(Switch):
         self.pcap_dump = pcap_dump
         self.enable_debugger = enable_debugger
         self.log_console = log_console
+        self.log_level = log_level
+        self.log_file = log_file
         if device_id is not None:
             self.device_id = device_id
             P4Switch.device_id = max(P4Switch.device_id, device_id)
@@ -129,6 +133,11 @@ class P4Switch(Switch):
             args.append("--debugger")
         if self.log_console:
             args.append("--log-console")
+        if self.log_level:
+            args.extend(['--log-level', self.log_level])
+        if self.log_file:
+            args.extend(['--log-file', self.log_file])
+        args.extend(['-- --enable-ra --enable-spade --ra-port 1 --enable-provP4'])
         logfile = "/tmp/p4s.{}.log".format(self.name)
         info(' '.join(args) + "\n")
 
