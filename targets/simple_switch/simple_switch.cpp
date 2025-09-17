@@ -199,7 +199,7 @@ class SimpleSwitch::InputBuffer {
 };
 
 SimpleSwitch::SimpleSwitch(bool enable_swap, port_t drop_port, bool enable_ra, port_t ra_port, uint32_t ra_etype, bool enable_spade, std::string spade_file,
-                           uint32_t spade_switch_id, uint32_t spade_verbosity, uint32_t spade_period, bool disable_ra_broadcast)
+                           uint32_t spade_switch_id, uint32_t spade_verbosity, uint32_t spade_period, bool disable_ra_broadcast, bool enable_provP4)
   : Switch(enable_swap),
     drop_port(drop_port),
     enable_ra(enable_ra),
@@ -213,6 +213,7 @@ SimpleSwitch::SimpleSwitch(bool enable_swap, port_t drop_port, bool enable_ra, p
     disable_ra_broadcast(disable_ra_broadcast),
     input_buffer(new InputBuffer(
         1024 /* normal capacity */, 1024 /* resubmit/recirc capacity */)),
+    enable_provP4(enable_provP4),
 #ifdef SSWITCH_PRIORITY_QUEUEING_ON
     egress_buffers(nb_egress_threads,
                    64, EgressThreadMapper(nb_egress_threads),
@@ -378,6 +379,11 @@ SimpleSwitch::get_enable_spade() const {
 int
 SimpleSwitch::get_spade_cli_id() const {
   return spade_switch_id / 100;
+}
+
+bool
+SimpleSwitch::get_enable_provP4() const {
+  return enable_provP4;
 }
 
 int
@@ -666,6 +672,11 @@ SimpleSwitch::ingress_thread() {
 
   while (1) {
     std::unique_ptr<Packet> packet;
+    auto flow_rule_tag = 0;
+    spade_uid_t input_uid = 0;
+    uint64_t instance = 0;
+    bool spade_artifact = false;
+    
     input_buffer->pop_back(&packet);
     if (packet == nullptr) break;
 
@@ -693,8 +704,8 @@ SimpleSwitch::ingress_thread() {
 
     if (enable_spade) {
       std::stringstream spade_ss;
-      spade_uid_t input_uid = spade_switch_id + (packet->get_packet_id() * 10);
-      uint64_t instance = get_time_since_epoch_us()/1000;
+      input_uid = spade_switch_id + (packet->get_packet_id() * 10);
+      instance = get_time_since_epoch_us()/1000;
       bool do_write_vertex = false;
       bool do_write_edge = false;
       if (spade_verbosity == 0) {
@@ -819,6 +830,7 @@ SimpleSwitch::ingress_thread() {
           int spade_rc = spade_send_edge(SPADE_ETYPE_GENERATEDBY, instance, input_uid,
                                       spade_port_in_ids.find(packet->get_ingress_port())->second, "size:"+std::to_string((int)(packet->get_register(RegisterAccess::PACKET_LENGTH_REG_IDX))));
           if (spade_rc != 0) BMLOG_DEBUG_PKT(*packet, "Failed to write packet ingress edge");
+          spade_artifact = true;
         }
       }
       else {
@@ -839,6 +851,20 @@ SimpleSwitch::ingress_thread() {
     }
 
     ingress_mau->apply(packet.get());
+
+    // Extract the flow rule tag from the packet after pipeline processing and update add SPADE edge
+    if (enable_spade && enable_provP4 && phv->has_field("scalars.metadata.flow_rule_tag")) {
+      flow_rule_tag = static_cast<unsigned char>(phv->get_field("scalars.metadata.flow_rule_tag").get<uint64_t>());
+      BMLOG_DEBUG_PKT(*packet, "[Ingress] Flow rule tag found: {}", flow_rule_tag);
+      if (input_uid != 0 && spade_artifact) {
+        if (flow_rule_tag != 0) {
+          spade_send_edge(SPADE_ETYPE_USED, instance, input_uid, flow_rule_tag, "");
+        }
+        else {
+          BMLOG_DEBUG_PKT(*packet, "[Ingress] No flow_rule_tag {} found", flow_rule_tag);
+        }
+      }
+    }
 
     packet->reset_exit();
 
@@ -1174,8 +1200,11 @@ SimpleSwitch::egress_thread(size_t worker_id) {
         input_uid = RegisterAccess::get_spade_input_uid(packet.get());
         BMLOG_DEBUG_PKT(*packet, "Grabbed input uid as {}", input_uid)
         if (input_uid != 0) {
-          spade_send_edge(SPADE_ETYPE_USED, instance, spade_port_out_ids.find(packet->get_egress_port())->second, input_uid, 
-                          "size:"+std::to_string(packet->get_data_size())); 
+          // For misconfigured port numbers, this check prevents from adding an edge to a non-existent port
+          if (spade_port_out_ids.find(packet->get_egress_port())->second != 0) {
+            spade_send_edge(SPADE_ETYPE_USED, instance, spade_port_out_ids.find(packet->get_egress_port())->second, input_uid, 
+                          "size:"+std::to_string(packet->get_data_size()));
+            }
         }
       }
     }
