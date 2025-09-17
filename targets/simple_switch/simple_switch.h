@@ -149,7 +149,6 @@ class SimpleSwitch : public Switch {
   std::unordered_map<std::string, spade_uid_t> spade_table_ids {};
   std::unordered_map<std::string, uint64_t> spade_recorded_flows_times {};
   std::unordered_map<std::string, spade_uid_t> spade_recorded_flows_uids {};
-  std::unordered_map<uint64_t, spade_uid_t> spade_flow_rule_tag_to_table_uid {};
 
  private:
   using clock = std::chrono::high_resolution_clock;
@@ -314,7 +313,6 @@ class SimpleSwitch : public Switch {
     }
     auto it = spade_table_ids.find(table_name);
     uint32_t spade_switch_id_special = spade_switch_id / 10;
-    auto flow_rule_tag_from_table = spade_flow_rule_tag_to_table_uid[flow_rule_tag]; // remove this
     if (it == spade_table_ids.end()) {
       spade_uid_t table_uid = spade_switch_id_special + spade_uid_ctr++;
       spade_send_vertex(SPADE_VTYPE_ARTIFACT, instance, table_uid,
@@ -331,11 +329,8 @@ class SimpleSwitch : public Switch {
       spade_send_edge(SPADE_ETYPE_DERIVEDFROM, instance, cur_table_uid, prev_table_uid, spade_str);
       it->second = cur_table_uid;
     }
-    //print the spade_flow_rule_tag_to_table_uid map
-    // for (auto it = spade_flow_rule_tag_to_table_uid.begin(); it != spade_flow_rule_tag_to_table_uid.end(); ++it) {
-    //   BMLOG_DEBUG("flow_rule_tag: {} table_uid: {}", it->first, it->second);
-    // }
-    if(flow_rule_tag != 0) {
+    // Add a SPADE vertex for ProvP4 with the id as the flow_rule_tag (for simplicity)
+    if(enable_provP4 && flow_rule_tag != 0) {
       spade_send_vertex(SPADE_VTYPE_ARTIFACT, instance, flow_rule_tag, "subtype:table_rule table:"+ table_name + spade_str);
     }
   }
@@ -458,15 +453,11 @@ class SimpleSwitch : public Switch {
     for (size_t q = 0; q < action_data.size(); ++q) {
       spade_ss << "\\ ";
       bm::utils::dump_hexstring(spade_ss, action_data.get(q).get_string());
-      if (q == action_data.size() - 1){
-        // TODO - only do this for the table that does forwarding - take table name as input
+      // Extract the flow rule tag from the action data only when ProvP4 is enabled and the table name is the forwarding table
+      if ((q == action_data.size() - 1) && enable_provP4 && (table_name == "MyIngress.ipv4_host")){
+        // TODO - Take the table name as input
         flow_rule_tag = action_data.get(q).get_uint64();
-        // Add the flow rule tag
         spade_ss << "\\ flow_rule_tag:" << flow_rule_tag;
-        if (flow_rule_tag != 0) {
-          // save the flow rule tag to the hash table with placeholder value -1
-          spade_flow_rule_tag_to_table_uid[flow_rule_tag] = -1;
-        }
       }
     }
     if (priority > -1) spade_ss << "\\ " << priority;
